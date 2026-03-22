@@ -1,0 +1,99 @@
+name: Release
+
+# Triggered when you push a tag like v1.0.0
+# git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write  # needed to create GitHub releases and upload assets
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      # Build for all supported platforms
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+
+          # Raspberry Pi 5 / Pi 4 (64-bit) — most common modern Pi
+          GOOS=linux GOARCH=arm64 \
+            go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
+            -o dist/cove-linux-arm64 ./cmd/cove
+
+          # Raspberry Pi 3 / Pi Zero 2 (32-bit)
+          GOOS=linux GOARCH=arm GOARM=7 \
+            go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
+            -o dist/cove-linux-arm32 ./cmd/cove
+
+          # x86-64 Linux (for people running on a regular server/VPS)
+          GOOS=linux GOARCH=amd64 \
+            go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
+            -o dist/cove-linux-amd64 ./cmd/cove
+
+          ls -lh dist/
+
+      # Bundle the web files so the release is self-contained
+      - name: Bundle web files
+        run: |
+          tar -czf dist/cove-web.tar.gz web/
+
+      # Generate SHA256 checksums for every release asset
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      # Create the GitHub release and upload all assets
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cove ${{ steps.version.outputs.VERSION }}
+          body: |
+            ## Install
+
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sudo bash
+            ```
+
+            ## Manual download
+
+            | Platform | Binary |
+            |----------|--------|
+            | Raspberry Pi 4/5 (64-bit) | `cove-linux-arm64` |
+            | Raspberry Pi 3 / Zero 2 (32-bit) | `cove-linux-arm32` |
+            | Linux x86-64 (VPS/server) | `cove-linux-amd64` |
+
+            ## Upgrading
+
+            Re-run the install script — it detects your existing config and upgrades in-place.
+
+            ## Checksums
+
+            Verify your download against `checksums.txt`.
+          files: |
+            dist/cove-linux-arm64
+            dist/cove-linux-arm32
+            dist/cove-linux-amd64
+            dist/cove-web.tar.gz
+            dist/checksums.txt
+          generate_release_notes: true

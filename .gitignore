@@ -1,0 +1,5 @@
+test-storage/
+cove-pi
+cove
+dist/
+*.DS_Store

@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cove</title>
+<style>
+  :root {
+    --bg:#f0f2f5; --surface:#fff; --border:#e5e5e5; --border-light:#f0f0f0;
+    --border-row:#f7f7f7; --text-primary:#1a1a1a; --text-secondary:#6b7280;
+    --text-muted:#9ca3af; --text-dim:#d1d5db; --accent:#2563eb;
+    --accent-hover:#1d4ed8; --accent-light:#eff6ff; --btn-secondary-bg:#fff;
+    --btn-secondary-text:#374151; --hover-bg:#f9fafb; --header-bg:#fff;
+    --modal-overlay:rgba(0,0,0,0.45); --grid-thumb-bg:#f3f4f6;
+    --shadow:0 2px 8px rgba(0,0,0,0.07); --drag-over:rgba(37,99,235,0.08);
+  }
+  @media (prefers-color-scheme:dark) {
+    :root {
+      --bg:#0f1117; --surface:#1a1d27; --border:#2a2d3a; --border-light:#232633;
+      --border-row:#1e2130; --text-primary:#e8eaf0; --text-secondary:#8b8fa8;
+      --text-muted:#5c5f72; --text-dim:#3a3d4d; --accent:#4a7fff;
+      --accent-hover:#3d70f0; --accent-light:#1a2240; --btn-secondary-bg:#232633;
+      --btn-secondary-text:#c8cad6; --hover-bg:#1e2130; --header-bg:#141720;
+      --modal-overlay:rgba(0,0,0,0.72); --grid-thumb-bg:#1e2130;
+      --shadow:0 2px 12px rgba(0,0,0,0.35); --drag-over:rgba(74,127,255,0.1);
+    }
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:var(--bg);color:var(--text-primary);min-height:100vh;}
+
+  header{background:var(--header-bg);border-bottom:1px solid var(--border);padding:0 28px;height:54px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;box-shadow:var(--shadow);}
+  .logo{font-size:20px;} .logo-text{font-size:16px;font-weight:700;letter-spacing:-0.3px;}
+  .breadcrumb{display:flex;align-items:center;gap:3px;font-size:13px;color:var(--text-muted);margin-left:8px;flex:1;flex-wrap:wrap;}
+  .breadcrumb .sep{color:var(--text-dim);}
+  .breadcrumb .crumb{cursor:pointer;color:var(--accent);border-radius:4px;padding:2px 5px;transition:background 0.1s;}
+  .breadcrumb .crumb:hover{background:var(--accent-light);}
+  .breadcrumb .crumb.drop-target{background:var(--accent);color:#fff;}
+  .header-right{display:flex;gap:6px;align-items:center;flex-shrink:0;}
+
+  .storage-chip{display:none;align-items:center;gap:7px;padding:4px 10px;border:1px solid var(--border);border-radius:8px;background:var(--btn-secondary-bg);}
+  .storage-chip.visible{display:flex;}
+  .storage-track{width:52px;height:4px;background:var(--border);border-radius:2px;overflow:hidden;flex-shrink:0;}
+  .storage-fill{height:100%;border-radius:2px;background:var(--accent);transition:width 0.6s ease;}
+  .storage-fill.warn{background:#f59e0b;} .storage-fill.danger{background:#ef4444;}
+  .storage-label{font-size:11px;color:var(--text-secondary);white-space:nowrap;}
+
+  main{max-width:960px;margin:28px auto;padding:0 24px;}
+  .toolbar{display:flex;gap:8px;margin-bottom:16px;align-items:center;}
+  .toolbar-right{margin-left:auto;display:flex;gap:6px;align-items:center;}
+
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:all 0.15s;white-space:nowrap;}
+  .btn-primary{background:var(--accent);color:#fff;} .btn-primary:hover{background:var(--accent-hover);}
+  .btn-secondary{background:var(--btn-secondary-bg);color:var(--btn-secondary-text);border:1px solid var(--border);}
+  .btn-secondary:hover{background:var(--hover-bg);}
+  .btn-danger{background:var(--btn-secondary-bg);color:#ef4444;border:1px solid #fca5a5;}
+  .btn-danger:hover{background:#fef2f2;}
+  input[type=file]{display:none;}
+
+  .upload-wrap{position:relative;}
+  .upload-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);z-index:30;min-width:160px;overflow:hidden;}
+  .upload-menu.open{display:block;}
+  .upload-menu-item{display:flex;align-items:center;gap:10px;padding:10px 14px;font-size:13px;cursor:pointer;color:var(--text-primary);transition:background 0.1s;}
+  .upload-menu-item:hover{background:var(--hover-bg);}
+
+  .sort-bar{display:grid;padding:8px 16px;font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.05em;border-bottom:1px solid var(--border-light);user-select:none;}
+  .sort-bar.list-mode{grid-template-columns:1fr 110px 150px 90px;}
+  .sort-col{display:flex;align-items:center;gap:4px;cursor:pointer;transition:color 0.1s;}
+  .sort-col:hover{color:var(--text-primary);} .sort-col.active{color:var(--accent);}
+
+  #upload-panel{display:none;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;margin-bottom:14px;}
+  .upload-panel-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .upload-panel-hdr h3{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:0.04em;}
+  .upload-cancel-all{font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);border-radius:5px;padding:3px 8px;cursor:pointer;transition:all 0.1s;}
+  .upload-cancel-all:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626;}
+  .upload-item{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-light);}
+  .upload-item:last-child{border-bottom:none;}
+  .upload-item-icon{font-size:15px;flex-shrink:0;}
+  .upload-item-name{flex:1;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;color:var(--text-primary);}
+  .upload-item-speed{font-size:11px;color:var(--text-secondary);width:68px;text-align:right;flex-shrink:0;}
+  .upload-item-eta{font-size:11px;color:var(--text-secondary);width:48px;text-align:right;flex-shrink:0;}
+  .upload-item-pct{font-size:11px;font-weight:600;color:var(--accent);width:34px;text-align:right;flex-shrink:0;}
+  .upload-item-cancel{width:20px;height:20px;border-radius:4px;border:1px solid var(--border);background:none;cursor:pointer;font-size:10px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);flex-shrink:0;transition:all 0.1s;}
+  .upload-item-cancel:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626;}
+  .progress-wrap{width:100px;height:3px;background:var(--border);border-radius:2px;overflow:hidden;flex-shrink:0;}
+  .progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width 0.4s;}
+
+  .file-surface{background:var(--surface);border-radius:14px;border:1px solid var(--border);overflow:hidden;}
+
+  .file-item-list{display:grid;grid-template-columns:1fr 110px 150px 90px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border-row);cursor:pointer;transition:background 0.1s;position:relative;}
+  .file-item-list:last-child{border-bottom:none;}
+  .file-item-list:hover{background:var(--hover-bg);}
+  .file-item-list.drag-over{background:var(--drag-over);outline:2px dashed var(--accent);outline-offset:-2px;border-radius:8px;}
+  .file-item-list.dragging{opacity:0.4;}
+  .file-name-cell{display:flex;align-items:center;gap:9px;min-width:0;}
+  .file-icon{font-size:17px;flex-shrink:0;}
+  .file-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .file-size{font-size:12px;color:var(--text-secondary);cursor:default;}
+  .file-date{font-size:12px;color:var(--text-secondary);}
+  .file-actions{display:flex;gap:3px;justify-content:flex-end;opacity:0;transition:opacity 0.1s;}
+  .file-item-list:hover .file-actions{opacity:1;}
+  .action-btn{width:26px;height:26px;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);transition:all 0.1s;}
+  .action-btn:hover{background:var(--hover-bg);}
+  .action-btn.del:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626;}
+
+  .grid-container{display:grid;gap:12px;padding:16px;}
+  .grid-sm{grid-template-columns:repeat(auto-fill,minmax(110px,1fr));}
+  .grid-md{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}
+  .grid-lg{grid-template-columns:repeat(auto-fill,minmax(230px,1fr));}
+  .grid-card{border-radius:10px;border:1px solid var(--border);overflow:hidden;cursor:pointer;transition:all 0.15s;background:var(--surface);position:relative;}
+  .grid-card:hover{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-light);}
+  .grid-card.drag-over{outline:2px dashed var(--accent);background:var(--drag-over);}
+  .grid-card.dragging{opacity:0.4;}
+  .grid-thumb{width:100%;aspect-ratio:4/3;background:var(--grid-thumb-bg);display:flex;align-items:center;justify-content:center;overflow:hidden;font-size:30px;position:relative;}
+  .grid-thumb img,.grid-thumb video{width:100%;height:100%;object-fit:cover;display:block;}
+  .lazy-thumb{width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;}
+  .lazy-thumb img,.lazy-thumb video{width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0;}
+  .grid-thumb .play-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;background:rgba(0,0,0,0.55);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;color:#fff;pointer-events:none;}
+  .grid-sm .grid-thumb{font-size:22px;} .grid-lg .grid-thumb{font-size:38px;}
+  .grid-info{padding:7px 9px;}
+  .grid-name{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text-primary);}
+  .grid-meta{font-size:11px;color:var(--text-muted);margin-top:2px;cursor:default;}
+  .grid-card-actions{position:absolute;top:4px;right:4px;display:flex;gap:3px;opacity:0;transition:opacity 0.15s;}
+  .grid-card:hover .grid-card-actions{opacity:1;}
+  .grid-action-btn{width:24px;height:24px;border-radius:5px;background:rgba(0,0,0,0.58);border:none;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;color:#fff;}
+  .grid-action-btn:hover{background:rgba(0,0,0,0.82);}
+
+  .view-toggle{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+  .view-btn{width:30px;height:30px;border:none;background:var(--btn-secondary-bg);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);transition:all 0.1s;}
+  .view-btn.active{background:var(--accent);color:#fff;}
+  .view-btn:not(.active):hover{background:var(--hover-bg);}
+  .grid-size-wrap{display:none;align-items:center;gap:6px;}
+  .grid-size-wrap.visible{display:flex;}
+  .grid-size-wrap input{width:64px;accent-color:var(--accent);}
+
+  .empty{text-align:center;padding:64px 24px;color:var(--text-muted);}
+  .empty-icon{font-size:36px;margin-bottom:10px;} .empty-text{font-size:14px;}
+
+  .modal-bg{display:none;position:fixed;inset:0;background:var(--modal-overlay);z-index:50;align-items:center;justify-content:center;backdrop-filter:blur(3px);}
+  .modal-bg.open{display:flex;}
+  .modal{background:var(--surface);border-radius:16px;width:100%;max-width:540px;max-height:84vh;display:flex;flex-direction:column;overflow:hidden;margin:20px;border:1px solid var(--border);box-shadow:var(--shadow);}
+  .modal-header{padding:18px 22px 14px;border-bottom:1px solid var(--border-light);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+  .modal-header h2{font-size:15px;font-weight:700;}
+  .modal-body{overflow-y:auto;flex:1;}
+  .modal-footer{padding:14px 22px;border-top:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;}
+  .close-btn{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--btn-secondary-bg);cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);}
+  .close-btn:hover{background:var(--hover-bg);}
+
+  .trash-item{display:flex;align-items:center;gap:12px;padding:11px 22px;border-bottom:1px solid var(--border-row);}
+  .trash-item:last-child{border-bottom:none;}
+  .trash-item-info{flex:1;min-width:0;}
+  .trash-item-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .trash-item-meta{font-size:11px;color:var(--text-muted);margin-top:2px;}
+  .trash-empty-state{text-align:center;padding:48px;color:var(--text-muted);font-size:14px;}
+
+  #preview-modal .modal{max-width:100%;max-height:100%;width:100%;height:100%;border-radius:0;margin:0;background:#0a0a0a;border:none;}
+  #preview-modal .modal-header{background:rgba(0,0,0,0.7);border-bottom:1px solid #1a1a1a;backdrop-filter:blur(8px);}
+  #preview-modal .modal-header h2{color:#ccc;font-size:13px;font-weight:500;}
+  #preview-modal .close-btn{background:#222;border-color:#333;color:#aaa;}
+  #preview-modal .modal-body{display:flex;align-items:center;justify-content:center;padding:0;position:relative;overflow:hidden;}
+  #preview-modal img{max-width:100%;max-height:calc(100vh - 120px);object-fit:contain;display:block;user-select:none;}
+  #preview-modal video{max-width:100%;max-height:calc(100vh - 120px);display:block;}
+  #preview-modal iframe{width:100%;height:calc(100vh - 120px);border:none;background:#fff;}
+  #preview-modal .audio-wrap{padding:60px 40px;text-align:center;color:#ddd;}
+  #preview-modal .modal-footer{background:rgba(0,0,0,0.7);border-top:1px solid #1a1a1a;backdrop-filter:blur(8px);}
+
+  .preview-nav{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;background:rgba(255,255,255,0.12);border:none;border-radius:50%;cursor:pointer;font-size:18px;color:#fff;display:flex;align-items:center;justify-content:center;z-index:5;transition:background 0.15s;backdrop-filter:blur(4px);}
+  .preview-nav:hover{background:rgba(255,255,255,0.25);}
+  .preview-nav.left{left:16px;} .preview-nav.right{right:16px;}
+  .preview-nav:disabled{opacity:0.2;cursor:default;}
+  .preview-counter{font-size:12px;color:#888;}
+
+  .drop-overlay{display:none;position:fixed;inset:0;background:rgba(74,127,255,0.07);border:3px dashed var(--accent);z-index:100;align-items:center;justify-content:center;font-size:18px;font-weight:600;color:var(--accent);pointer-events:none;}
+  .drop-overlay.active{display:flex;}
+
+  .ctx-menu{display:none;position:fixed;background:var(--surface);border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);z-index:200;min-width:180px;overflow:hidden;padding:4px 0;}
+  .ctx-menu.open{display:block;}
+  .ctx-item{display:flex;align-items:center;gap:9px;padding:8px 14px;font-size:13px;cursor:pointer;color:var(--text-primary);transition:background 0.1s;}
+  .ctx-item:hover{background:var(--hover-bg);}
+  .ctx-item.danger{color:#ef4444;}
+  .ctx-item.danger:hover{background:#fef2f2;}
+  .ctx-sep{height:1px;background:var(--border-light);margin:4px 0;}
+</style>
+</head>
+<body>
+
+<div class="drop-overlay" id="drop-overlay">Drop files to upload</div>
+<div class="ctx-menu" id="ctx-menu"></div>
+
+<header>
+  <div class="logo">🌊</div>
+  <div class="logo-text">Cove</div>
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <div class="header-right">
+    <div class="storage-chip" id="storage-chip">
+      <div class="storage-track"><div class="storage-fill" id="storage-fill" style="width:0%"></div></div>
+      <span class="storage-label" id="storage-label">—</span>
+    </div>
+    <button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="openTrash()">🗑 Bin</button>
+    <button class="btn btn-secondary" style="font-size:13px;padding:6px 12px" onclick="logout()">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <div id="upload-panel">
+    <div class="upload-panel-hdr">
+      <h3>Uploading</h3>
+      <button class="upload-cancel-all" onclick="cancelAllUploads()">✕ Cancel all</button>
+    </div>
+    <div id="upload-list"></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="upload-wrap" id="upload-wrap">
+      <button class="btn btn-primary" onclick="toggleUploadMenu(event)">↑ Upload ▾</button>
+      <div class="upload-menu" id="upload-menu">
+        <div class="upload-menu-item" onclick="document.getElementById('file-input').click();closeUploadMenu()">📄 Files</div>
+        <div class="upload-menu-item" onclick="document.getElementById('folder-input').click();closeUploadMenu()">📁 Folder</div>
+      </div>
+    </div>
+    <input type="file" id="file-input" multiple onchange="uploadFiles(Array.from(this.files));this.value=''">
+    <input type="file" id="folder-input" webkitdirectory multiple onchange="uploadFolder(this.files);this.value=''">
+    <button class="btn btn-secondary" onclick="mkdir()">+ New folder</button>
+    <div class="toolbar-right">
+      <div class="grid-size-wrap" id="grid-size-wrap">
+        <span style="font-size:11px;color:var(--text-muted)">S</span>
+        <input type="range" min="0" max="2" step="1" value="1" id="grid-size-slider" oninput="setGridSize(this.value)">
+        <span style="font-size:11px;color:var(--text-muted)">L</span>
+      </div>
+      <div class="view-toggle">
+        <button class="view-btn active" id="btn-list" onclick="setView('list')" title="List">☰</button>
+        <button class="view-btn" id="btn-grid" onclick="setView('grid')" title="Grid">⊞</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="file-surface" id="file-surface">
+    <div class="empty"><div class="empty-icon">🌊</div><div class="empty-text">Loading...</div></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="trash-modal" onclick="if(event.target===this)closeTrash()">
+  <div class="modal">
+    <div class="modal-header"><h2>🗑 Bin</h2><button class="close-btn" onclick="closeTrash()">✕</button></div>
+    <div class="modal-body" id="trash-body"><div class="trash-empty-state">Bin is empty</div></div>
+    <div class="modal-footer">
+      <span style="font-size:12px;color:var(--text-muted)" id="trash-count"></span>
+      <button class="btn btn-danger" style="font-size:13px;padding:6px 12px" onclick="emptyTrash()">Empty bin</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="preview-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 id="preview-title">Preview</h2>
+      <button class="close-btn" onclick="closePreview()">✕</button>
+    </div>
+    <div class="modal-body" id="preview-body">
+      <button class="preview-nav left" id="nav-prev" onclick="previewNav(-1)">‹</button>
+      <div id="preview-content" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%"></div>
+      <button class="preview-nav right" id="nav-next" onclick="previewNav(1)">›</button>
+    </div>
+    <div class="modal-footer" style="background:rgba(0,0,0,0.7);border-top-color:#1a1a1a">
+      <span class="preview-counter" id="preview-counter"></span>
+      <button class="btn btn-secondary" id="preview-dl-btn" style="font-size:13px;padding:6px 12px">↓ Download</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+let currentPath = '/';
+let currentFiles = [];
+let sortKey = 'name', sortAsc = true;
+let viewMode = 'list', gridSize = 1;
+let wakeLock = null;
+let previewFiles = [], previewIndex = 0;
+let dragSrcPath = null;
+const fileMap = new Map(); // path → file entry, for safe right-click lookup
+
+// ── Wake lock ──────────────────────────────────────────────────
+async function acquireWakeLock() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {}
+}
+function releaseWakeLock() { if (wakeLock) { wakeLock.release(); wakeLock = null; } }
+document.addEventListener('visibilitychange', () => {
+  if (wakeLock && document.visibilityState === 'visible') acquireWakeLock();
+});
+
+// ── Upload system ──────────────────────────────────────────────
+// Sequential queue: one file at a time. Total throughput is identical to
+// parallel but each file finishes faster (full bandwidth instead of split),
+// and the USB drive isn't hammered with concurrent writes.
+//
+// Pause/resume: on pause, XHR is aborted and the server keeps the partial
+// temp file. Before resuming we query the server for the confirmed byte count
+// so we never re-send or skip data even if the client's progress counter was
+// slightly ahead of the server.
+
+const uploadQueue   = []; // [{fileId, file, path, relativePath, uploadId}]
+const activeUploads = {}; // fileId → XHR (only one running at a time)
+const pausedState   = {}; // fileId → {file, path, relativePath, uploadId}
+let   uploadRunning = false;
+let   totalQueued   = 0;  // total files added this session (for "all done" detection)
+let   totalDone     = 0;
+
+// Warn before closing tab mid-upload
+window.addEventListener('beforeunload', e => {
+  if (uploadRunning || uploadQueue.length > 0) {
+    e.preventDefault();
+    e.returnValue = 'You have uploads in progress. If you leave, they will be lost.';
+  }
+});
+
+function genUploadId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function processQueue() {
+  if (uploadRunning || uploadQueue.length === 0) return;
+  uploadRunning = true;
+  const next = uploadQueue.shift();
+  runUpload(next);
+}
+
+async function runUpload(job) {
+  const { fileId, file, path, relativePath } = job;
+  let   { uploadId, resumeOffset } = job;
+  const g = id => document.getElementById(id + '-' + fileId);
+
+  // If resuming, ask server for confirmed byte count to avoid gaps
+  let startOffset = 0;
+  if (resumeOffset !== undefined) {
+    try {
+      const r = await fetch('/api/upload-simple?uploadId=' + encodeURIComponent(uploadId));
+      const d = await r.json();
+      startOffset = d.offset || 0;
+    } catch(e) { startOffset = resumeOffset; }
+    if (g('pct')) { g('pct').textContent = Math.round(startOffset/file.size*100)+'%'; g('pct').style.color=''; }
+  } else {
+    uploadId = genUploadId();
+    job.uploadId = uploadId;
+  }
+
+  const xhr = new XMLHttpRequest();
+  activeUploads[fileId] = xhr;
+  // Store job on DOM row so pauseOneUpload can access uploadId + lastLoaded
+  const row = document.getElementById('row-' + fileId);
+  if (row) row._uploadJob = job;
+
+  let lastLoaded = 0, lastTime = Date.now();
+
+  xhr.upload.onprogress = e => {
+    const totalLoaded = startOffset + e.loaded;
+    const pct = Math.round(totalLoaded / file.size * 100);
+    const now = Date.now(), dt = (now - lastTime) / 1000, db = e.loaded - lastLoaded;
+    if (dt > 0.5 && db > 0) {
+      const bps = db / dt;
+      if (g('speed')) g('speed').textContent = fmtSpeed(bps);
+      if (g('eta'))   g('eta').textContent   = fmtEta((file.size - totalLoaded) / bps);
+      lastLoaded = e.loaded; lastTime = now;
+    }
+    if (g('bar')) g('bar').style.width = pct + '%';
+    if (g('pct')) g('pct').textContent = pct + '%';
+    job.lastLoaded = startOffset + e.loaded;
+  };
+
+  xhr.onload = () => {
+    delete activeUploads[fileId];
+    uploadRunning = false;
+    if (xhr.status === 201) {
+      if (g('pct'))   { g('pct').textContent = '✓'; g('pct').style.color = '#22c55e'; }
+      if (g('speed')) g('speed').textContent = '';
+      if (g('eta'))   g('eta').textContent = '';
+      if (g('bar'))   { g('bar').style.width = '100%'; g('bar').style.background = '#22c55e'; }
+      delete pausedState[fileId];
+    } else {
+      if (g('pct'))   { g('pct').textContent = '✗'; g('pct').style.color = '#ef4444'; }
+      if (g('speed')) g('speed').textContent = 'Failed';
+      if (g('eta'))   g('eta').textContent = '';
+    }
+    totalDone++;
+    if (totalDone >= totalQueued && uploadQueue.length === 0) {
+      releaseWakeLock();
+      setTimeout(() => {
+        document.getElementById('upload-panel').style.display = 'none';
+        document.getElementById('upload-list').innerHTML = '';
+        totalQueued = 0; totalDone = 0;
+        loadFiles(currentPath); loadDiskUsage();
+      }, 1500);
+    } else {
+      processQueue();
+    }
+  };
+
+  xhr.onerror = xhr.ontimeout = () => {
+    delete activeUploads[fileId];
+    uploadRunning = false;
+    if (g('pct'))   { g('pct').textContent = '✗'; g('pct').style.color = '#ef4444'; }
+    if (g('speed')) g('speed').textContent = 'Failed';
+    if (g('eta'))   g('eta').textContent = '';
+    totalDone++;
+    processQueue();
+  };
+
+  const params = new URLSearchParams({
+    path, filename: file.name,
+    relativePath: relativePath || '',
+    uploadId,
+    size: file.size,
+    ...(startOffset > 0 ? { offset: startOffset } : {}),
+  });
+  const body = startOffset > 0 ? file.slice(startOffset) : file;
+  xhr.open('POST', '/api/upload-simple?' + params);
+  xhr.timeout = 0; // no timeout — large files over home networks can take hours
+  xhr.send(body);
+}
+
+function addFileToQueue(file, relativePath) {
+  const fileId = Math.random().toString(36).slice(2);
+  totalQueued++;
+  acquireWakeLock();
+  document.getElementById('upload-panel').style.display = 'block';
+  const row = document.createElement('div');
+  row.className = 'upload-item';
+  row.id = 'row-' + fileId;
+  row.innerHTML = `
+    <div class="upload-item-icon">${fileIcon({name: file.name, isDir: false})}</div>
+    <div class="upload-item-name">${esc(relativePath || file.name)}</div>
+    <div class="upload-item-speed" id="speed-${fileId}">—</div>
+    <div class="upload-item-eta"   id="eta-${fileId}">—</div>
+    <div class="progress-wrap"><div class="progress-fill" id="bar-${fileId}" style="width:0%"></div></div>
+    <div class="upload-item-pct"   id="pct-${fileId}">0%</div>
+    <button class="upload-item-cancel upload-item-pause" title="Pause" onclick="pauseOneUpload('${fileId}')">⏸</button>
+    <button class="upload-item-cancel" title="Cancel" onclick="cancelOneUpload('${fileId}')">✕</button>`;
+  document.getElementById('upload-list').appendChild(row);
+  const job = { fileId, file, path: currentPath, relativePath };
+  row._uploadJob = job;
+  uploadQueue.push(job);
+  processQueue();
+}
+
+function uploadFiles(files) {
+  files.forEach(file => addFileToQueue(file, ''));
+}
+function uploadFolder(fileList) {
+  Array.from(fileList).forEach(file =>
+    addFileToQueue(file, file.webkitRelativePath || file.name)
+  );
+}
+
+async function pauseOneUpload(fileId) {
+  const xhr = activeUploads[fileId];
+  const g = id => document.getElementById(id + '-' + fileId);
+  // Find the job (it's currently running, so it was shifted off queue)
+  // We stored uploadId on the job object inside runUpload
+  // Find it via activeUploads tracking
+  if (!xhr) {
+    // File is queued but not yet running — just mark it paused in queue
+    const idx = uploadQueue.findIndex(j => j.fileId === fileId);
+    if (idx !== -1) {
+      const [job] = uploadQueue.splice(idx, 1);
+      pausedState[fileId] = { ...job, resumeOffset: 0 };
+      totalQueued--;
+      if (g('pct'))   { g('pct').textContent = '⏸'; g('pct').style.color = '#f59e0b'; }
+      if (g('speed')) g('speed').textContent = 'Queued';
+      const pauseBtn = document.querySelector(`#row-${fileId} .upload-item-pause`);
+      if (pauseBtn) { pauseBtn.textContent = '▶'; pauseBtn.title = 'Resume'; pauseBtn.onclick = () => resumeOneUpload(fileId); }
+    }
+    return;
+  }
+
+  // Currently uploading — abort and save state
+  // We need the job details; pass them through a closure on the row
+  const row = document.getElementById('row-' + fileId);
+  if (!row || !row._uploadJob) return;
+  const job = row._uploadJob;
+  xhr.abort();
+  delete activeUploads[fileId];
+  uploadRunning = false;
+
+  if (g('pct'))   { g('pct').textContent = '⏸'; g('pct').style.color = '#f59e0b'; }
+  if (g('speed')) g('speed').textContent = 'Paused';
+  if (g('eta'))   g('eta').textContent = '';
+
+  // Query server for confirmed byte count before saving pause state
+  let confirmedOffset = job.lastLoaded || 0;
+  try {
+    const r = await fetch('/api/upload-simple?uploadId=' + encodeURIComponent(job.uploadId));
+    const d = await r.json();
+    confirmedOffset = d.offset || confirmedOffset;
+  } catch(e) {}
+
+  pausedState[fileId] = { ...job, resumeOffset: confirmedOffset };
+  totalQueued--; // this file is no longer in active queue
+
+  const pauseBtn = document.querySelector(`#row-${fileId} .upload-item-pause`);
+  if (pauseBtn) { pauseBtn.textContent = '▶'; pauseBtn.title = 'Resume'; pauseBtn.onclick = () => resumeOneUpload(fileId); }
+
+  processQueue();
+}
+
+function resumeOneUpload(fileId) {
+  const state = pausedState[fileId];
+  if (!state) return;
+  delete pausedState[fileId];
+  const g = id => document.getElementById(id + '-' + fileId);
+  if (g('speed')) g('speed').textContent = 'Resuming…';
+  totalQueued++;
+  uploadQueue.push({ ...state });
+  const pauseBtn = document.querySelector(`#row-${fileId} .upload-item-pause`);
+  if (pauseBtn) { pauseBtn.textContent = '⏸'; pauseBtn.title = 'Pause'; pauseBtn.onclick = () => pauseOneUpload(fileId); }
+  processQueue();
+}
+
+function cancelOneUpload(fileId) {
+  const xhr = activeUploads[fileId];
+  if (xhr) { xhr.abort(); delete activeUploads[fileId]; uploadRunning = false; }
+  const idx = uploadQueue.findIndex(j => j.fileId === fileId);
+  if (idx !== -1) uploadQueue.splice(idx, 1);
+  delete pausedState[fileId];
+  const row = document.getElementById('row-' + fileId);
+  if (row) row.remove();
+  totalQueued = Math.max(0, totalQueued - 1);
+  if (uploadQueue.length === 0 && !uploadRunning && Object.keys(pausedState).length === 0) {
+    document.getElementById('upload-panel').style.display = 'none';
+    document.getElementById('upload-list').innerHTML = '';
+    totalQueued = 0; totalDone = 0;
+    releaseWakeLock();
+    loadFiles(currentPath);
+  } else {
+    processQueue();
+  }
+}
+
+function cancelAllUploads() {
+  Object.values(activeUploads).forEach(xhr => xhr.abort());
+  Object.keys(activeUploads).forEach(k => delete activeUploads[k]);
+  Object.keys(pausedState).forEach(k => delete pausedState[k]);
+  uploadQueue.length = 0;
+  uploadRunning = false; totalQueued = 0; totalDone = 0;
+  document.getElementById('upload-panel').style.display = 'none';
+  document.getElementById('upload-list').innerHTML = '';
+  releaseWakeLock();
+  loadFiles(currentPath);
+}
+
+// ── Upload menu ────────────────────────────────────────────────
+function toggleUploadMenu(e) { e.stopPropagation(); document.getElementById('upload-menu').classList.toggle('open'); }
+function closeUploadMenu() { document.getElementById('upload-menu').classList.remove('open'); }
+document.addEventListener('click', closeUploadMenu);
+
+// ── View / sort ────────────────────────────────────────────────
+function setView(mode) {
+  viewMode = mode;
+  document.getElementById('btn-list').classList.toggle('active', mode==='list');
+  document.getElementById('btn-grid').classList.toggle('active', mode==='grid');
+  document.getElementById('grid-size-wrap').classList.toggle('visible', mode==='grid');
+  renderFiles();
+}
+function setGridSize(v) { gridSize = parseInt(v); renderFiles(); }
+function setSort(key) {
+  if (sortKey===key) sortAsc=!sortAsc; else { sortKey=key; sortAsc=key==='name'; }
+  renderFiles();
+}
+const GRID_CLASSES = ['grid-sm','grid-md','grid-lg'];
+
+// ── File loading ───────────────────────────────────────────────
+async function loadFiles(path) {
+  currentPath = path || '/';
+  updateBreadcrumb();
+  const res = await fetch('/api/ls?path=' + encodeURIComponent(currentPath));
+  currentFiles = await res.json();
+  renderFiles();
+}
+
+function sortedFiles() {
+  return [...currentFiles].sort((a,b) => {
+    if (a.isDir!==b.isDir) return a.isDir?-1:1;
+    let va,vb;
+    if (sortKey==='name')     { va=a.name.toLowerCase(); vb=b.name.toLowerCase(); }
+    else if (sortKey==='size'){ va=a.size; vb=b.size; }
+    else                      { va=new Date(a.modTime); vb=new Date(b.modTime); }
+    return (va<vb?-1:va>vb?1:0)*(sortAsc?1:-1);
+  });
+}
+
+function renderFiles() {
+  const surface = document.getElementById('file-surface');
+  const files = sortedFiles();
+  previewFiles = files.filter(f => !f.isDir && canPreview(f.name));
+  fileMap.clear();
+  files.forEach(f => fileMap.set(f.path, f));
+  if (!files.length) {
+    surface.innerHTML = `<div class="empty"><div class="empty-icon">📂</div><div class="empty-text">This folder is empty</div></div>`;
+    return;
+  }
+  viewMode==='list' ? renderList(surface,files) : renderGrid(surface,files);
+}
+
+function sortArrow(k) { return sortKey!==k?'':`<span style="font-size:10px">${sortAsc?'↑':'↓'}</span>`; }
+
+// ── LIST render ────────────────────────────────────────────────
+function renderList(surface, files) {
+  surface.innerHTML = `
+    <div class="sort-bar list-mode">
+      <div class="sort-col ${sortKey==='name'?'active':''}" onclick="setSort('name')">Name ${sortArrow('name')}</div>
+      <div class="sort-col ${sortKey==='size'?'active':''}" onclick="setSort('size')">Size ${sortArrow('size')}</div>
+      <div class="sort-col ${sortKey==='date'?'active':''}" onclick="setSort('date')">Modified ${sortArrow('date')}</div>
+      <div></div>
+    </div>` +
+    files.map(f => {
+      const sid = szId(f.path);
+      return `<div class="file-item-list"
+        draggable="true"
+        ondragstart="onDragStart(event,'${esc(f.path)}')"
+        ondragover="onDragOver(event,this,${f.isDir})"
+        ondragleave="onDragLeave(this)"
+        ondrop="onDrop(event,this,'${esc(f.path)}','${esc(f.name)}')"
+        ondragend="onDragEnd(this)"
+        oncontextmenu="openCtxMenu(event,'${esc(f.path)}')"
+        onclick="${clickFn(f)}">
+        <div class="file-name-cell">
+          <div class="file-icon">${fileIcon(f)}</div>
+          <div class="file-name">${esc(f.name)}</div>
+        </div>
+        <div class="file-size" id="${sid}"
+          onmouseenter="hoverSize(event,'${esc(f.path)}')"
+          onmouseleave="cancelHoverSize()">${f.isDir?'—':fmtSize(f.size)}</div>
+        <div class="file-date">${fmtDate(f.modTime)}</div>
+        <div class="file-actions">
+          ${!f.isDir?`<button class="action-btn" title="Download" onclick="event.stopPropagation();dl('${esc(f.path)}','${esc(f.name)}')">↓</button>`:''}
+          <button class="action-btn del" title="Bin" onclick="event.stopPropagation();del('${esc(f.path)}','${esc(f.name)}')">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  // NO auto folder size loading — it competes with uploads on the USB drive
+}
+
+// ── GRID render ────────────────────────────────────────────────
+function renderGrid(surface, files) {
+  const cls = GRID_CLASSES[gridSize];
+  surface.innerHTML = `<div class="grid-container ${cls}">` +
+    files.map(f => {
+      const sid = szId(f.path);
+      const thumb = gridThumb(f);
+      return `<div class="grid-card"
+        draggable="true"
+        ondragstart="onDragStart(event,'${esc(f.path)}')"
+        ondragover="onDragOver(event,this,${f.isDir})"
+        ondragleave="onDragLeave(this)"
+        ondrop="onDrop(event,this,'${esc(f.path)}','${esc(f.name)}')"
+        ondragend="onDragEnd(this)"
+        oncontextmenu="openCtxMenu(event,'${esc(f.path)}')"
+        onclick="${clickFn(f)}">
+        <div class="grid-thumb">${thumb}</div>
+        <div class="grid-card-actions">
+          ${!f.isDir?`<button class="grid-action-btn" title="Download" onclick="event.stopPropagation();dl('${esc(f.path)}','${esc(f.name)}')">↓</button>`:''}
+          <button class="grid-action-btn" title="Bin" onclick="event.stopPropagation();del('${esc(f.path)}','${esc(f.name)}')">🗑</button>
+        </div>
+        <div class="grid-info">
+          <div class="grid-name">${esc(f.name)}</div>
+          <div class="grid-meta" id="${sid}"
+            onmouseenter="hoverSize(event,'${esc(f.path)}')"
+            onmouseleave="cancelHoverSize()">${f.isDir?'—':fmtSize(f.size)}</div>
+        </div>
+      </div>`;
+    }).join('') + '</div>';
+  attachThumbObservers();
+  // NO auto folder size loading
+}
+
+// ── Grid thumbnails — lazy via IntersectionObserver ────────────
+// Only request thumbnails for cards actually visible in the viewport.
+// Throttled to 4 concurrent loads so opening a folder with 200 videos
+// doesn't fire 200 simultaneous disk reads and freeze the Pi.
+let thumbLoading = 0;
+const THUMB_CONCURRENCY = 4;
+const thumbQueue = [];
+
+function loadThumb(thumb) {
+  const url  = thumb.dataset.src;
+  const type = thumb.dataset.type;
+  thumbLoading++;
+
+  const done = () => {
+    thumbLoading--;
+    if (thumbQueue.length > 0) loadThumb(thumbQueue.shift());
+  };
+
+  if (type === 'image') {
+    const img = new Image();
+    img.onload  = () => { thumb.innerHTML = ''; thumb.appendChild(img); done(); };
+    img.onerror = () => { thumb.innerHTML = '<div style="font-size:38px">🖼️</div>'; done(); };
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0';
+    img.src = url;
+  } else if (type === 'video') {
+    const vid = document.createElement('video');
+    vid.preload = 'metadata';
+    vid.muted = true;
+    vid.playsInline = true;
+    vid.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;position:absolute;inset:0';
+    const onReady = () => {
+      const badge = document.createElement('div');
+      badge.className = 'play-badge';
+      badge.textContent = '▶';
+      thumb.innerHTML = '';
+      thumb.appendChild(vid);
+      thumb.appendChild(badge);
+      done();
+    };
+    vid.onloadedmetadata = onReady;
+    vid.onerror = () => { thumb.innerHTML = '<div style="font-size:38px">🎬</div><div class="play-badge">▶</div>'; done(); };
+    vid.src = url + '#t=0.1';
+  }
+}
+
+const thumbObserver = new IntersectionObserver((entries) => {
+  entries.forEach(el => {
+    if (!el.isIntersecting) return;
+    const thumb = el.target;
+    thumbObserver.unobserve(thumb);
+    if (thumbLoading < THUMB_CONCURRENCY) {
+      loadThumb(thumb);
+    } else {
+      thumbQueue.push(thumb);
+    }
+  });
+}, { rootMargin: '100px' });
+
+function gridThumb(f) {
+  if (f.isDir) return '<div style="font-size:38px">📁</div>';
+  const ext = f.name.split('.').pop().toLowerCase();
+  const url = '/api/preview?path=' + encodeURIComponent(f.path);
+  if (['jpg','jpeg','png','gif','webp','bmp'].includes(ext))
+    return `<div class="lazy-thumb" data-src="${url}" data-type="image"><div style="font-size:38px">🖼️</div></div>`;
+  if (['mp4','mov','mkv','avi','webm','m4v'].includes(ext))
+    return `<div class="lazy-thumb" data-src="${url}" data-type="video"><div style="font-size:38px">🎬</div><div class="play-badge">▶</div></div>`;
+  return `<div style="font-size:38px">${fileIcon(f)}</div>`;
+}
+
+function attachThumbObservers() {
+  // Reset queue/counter when navigating to a new folder
+  thumbQueue.length = 0;
+  thumbLoading = 0;
+  document.querySelectorAll('.lazy-thumb').forEach(el => thumbObserver.observe(el));
+}
+
+// ── Folder size: hover-delay only, client-side cache ──────────
+// Sizes never load automatically — that hammers the USB drive during uploads.
+// Hover a folder for 600ms to load. Instant on repeat hover (cached).
+const sizeClientCache = new Map();
+let hoverTimer = null;
+let hoverCtrl = null;
+
+function hoverSize(e, path) {
+  const el = e.currentTarget;
+  if (!el || el.dataset.loaded) return;
+  if (sizeClientCache.has(path)) {
+    el.textContent = sizeClientCache.get(path);
+    el.dataset.loaded = '1';
+    return;
+  }
+  hoverTimer = setTimeout(async () => {
+    hoverCtrl = new AbortController();
+    try {
+      const res = await fetch('/api/size?path=' + encodeURIComponent(path), { signal: hoverCtrl.signal });
+      const d = await res.json();
+      const fmt = fmtSize(d.size);
+      sizeClientCache.set(path, fmt);
+      const live = document.getElementById(szId(path));
+      if (live) { live.textContent = fmt; live.dataset.loaded = '1'; }
+    } catch(err) {
+      if (err.name !== 'AbortError') {
+        const live = document.getElementById(szId(path));
+        if (live) live.textContent = '—';
+      }
+    }
+  }, 600);
+}
+
+function cancelHoverSize() {
+  clearTimeout(hoverTimer); hoverTimer = null;
+  if (hoverCtrl) { hoverCtrl.abort(); hoverCtrl = null; }
+}
+
+// ── Drag-to-move ───────────────────────────────────────────────
+function onDragStart(e, path) {
+  dragSrcPath = path;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', path);
+  e.currentTarget.classList.add('dragging');
+}
+function onDragOver(e, el, isDir) {
+  e.preventDefault(); e.stopPropagation();
+  if (e.dataTransfer.types.includes('Files')) { el.classList.add('drag-over'); e.dataTransfer.dropEffect='copy'; return; }
+  if (isDir && dragSrcPath) { el.classList.add('drag-over'); e.dataTransfer.dropEffect='move'; }
+}
+function onDragLeave(el) { el.classList.remove('drag-over'); }
+async function onDrop(e, el, destPath, destName) {
+  e.preventDefault(); e.stopPropagation();
+  el.classList.remove('drag-over');
+  if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && e.dataTransfer.types.includes('Files')) {
+    uploadFiles(Array.from(e.dataTransfer.files)); return;
+  }
+  if (dragSrcPath && dragSrcPath !== destPath) {
+    await fetch('/api/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src:dragSrcPath,dst:destPath}) });
+    dragSrcPath = null; loadFiles(currentPath);
+  }
+}
+function onDragEnd(el) {
+  el.classList.remove('dragging');
+  document.querySelectorAll('.crumb').forEach(c => c.classList.remove('drop-target'));
+  dragSrcPath = null;
+}
+
+// ── Drag-to-breadcrumb ─────────────────────────────────────────
+document.getElementById('breadcrumb').addEventListener('dragover', e => {
+  if (!dragSrcPath) return;
+  const crumb = e.target.closest('.crumb');
+  if (!crumb) return;
+  e.preventDefault(); e.stopPropagation();
+  document.querySelectorAll('.crumb').forEach(c => c.classList.remove('drop-target'));
+  crumb.classList.add('drop-target');
+  e.dataTransfer.dropEffect = 'move';
+});
+document.getElementById('breadcrumb').addEventListener('dragleave', e => {
+  if (!document.getElementById('breadcrumb').contains(e.relatedTarget))
+    document.querySelectorAll('.crumb').forEach(c => c.classList.remove('drop-target'));
+});
+document.getElementById('breadcrumb').addEventListener('drop', async e => {
+  const crumb = e.target.closest('.crumb');
+  document.querySelectorAll('.crumb').forEach(c => c.classList.remove('drop-target'));
+  if (!crumb || !dragSrcPath) return;
+  e.preventDefault(); e.stopPropagation();
+  const destPath = crumb.dataset.path;
+  if (!destPath) return;
+  const srcParent = dragSrcPath.substring(0, dragSrcPath.lastIndexOf('/')) || '/';
+  if (destPath === srcParent) return;
+  await fetch('/api/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src:dragSrcPath,dst:destPath}) });
+  dragSrcPath = null; loadFiles(currentPath);
+});
+
+// ── File actions ───────────────────────────────────────────────
+function clickFn(f) {
+  if (f.isDir) return `loadFiles('${esc(f.path)}')`;
+  const pi = previewFiles.findIndex(p => p.path===f.path);
+  if (pi!==-1) return `openPreview(${pi})`;
+  return `dl('${esc(f.path)}','${esc(f.name)}')`;
+}
+function dl(path, name) {
+  const a = document.createElement('a');
+  a.href = '/api/download?path=' + encodeURIComponent(path);
+  a.download = name; a.click();
+}
+async function del(path, name) {
+  if (!confirm(`Move "${name}" to bin?`)) return;
+  await fetch('/api/delete?path=' + encodeURIComponent(path), {method:'DELETE'});
+  loadFiles(currentPath);
+}
+async function mkdir() {
+  const name = prompt('Folder name:');
+  if (!name||!name.trim()) return;
+  await fetch('/api/mkdir?path=' + encodeURIComponent(currentPath.replace(/\/$/,'')+'/'+name.trim()), {method:'POST'});
+  loadFiles(currentPath);
+}
+async function logout() {
+  await fetch('/api/auth/logout', {method:'POST'});
+  window.location.href = '/login';
+}
+
+// ── Preview ────────────────────────────────────────────────────
+const PREVIEW_EXT = {
+  image: ['jpg','jpeg','png','gif','webp','bmp','svg','heic'],
+  video: ['mp4','mov','mkv','avi','webm','m4v'],
+  audio: ['mp3','flac','aac','wav','ogg','m4a'],
+  pdf:   ['pdf'],
+};
+function canPreview(name) { return !!previewType(name); }
+function previewType(name) {
+  const e = name.split('.').pop().toLowerCase();
+  for (const [t,exts] of Object.entries(PREVIEW_EXT)) { if (exts.includes(e)) return t; }
+  return null;
+}
+function openPreview(index) { previewIndex=index; renderPreview(); document.getElementById('preview-modal').classList.add('open'); }
+function renderPreview() {
+  const f = previewFiles[previewIndex];
+  if (!f) return;
+  const type = previewType(f.name);
+  const ext  = f.name.split('.').pop().toLowerCase();
+  const url  = '/api/preview?path=' + encodeURIComponent(f.path);
+  const mimeMap = {
+    mp4:'video/mp4',mov:'video/mp4',m4v:'video/mp4',
+    webm:'video/webm',mkv:'video/webm',avi:'video/x-msvideo',
+    mp3:'audio/mpeg',m4a:'audio/mp4',aac:'audio/aac',
+    flac:'audio/flac',wav:'audio/wav',ogg:'audio/ogg',
+  };
+  const mime = mimeMap[ext]||'';
+  document.getElementById('preview-title').textContent = f.name;
+  document.getElementById('preview-counter').textContent = `${previewIndex+1} / ${previewFiles.length}`;
+  document.getElementById('preview-dl-btn').onclick = () => dl(f.path, f.name);
+  document.getElementById('nav-prev').disabled = previewIndex===0;
+  document.getElementById('nav-next').disabled = previewIndex===previewFiles.length-1;
+  const content = document.getElementById('preview-content');
+  if (type==='image') content.innerHTML = `<img src="${url}" alt="${esc(f.name)}">`;
+  else if (type==='video') content.innerHTML = `<video controls autoplay playsinline preload="auto" style="max-width:100%;max-height:calc(100vh - 120px)"><source src="${url}"${mime?` type="${mime}"`:''} ></video>`;
+  else if (type==='audio') content.innerHTML = `<div class="audio-wrap"><div style="font-size:52px;margin-bottom:16px">🎵</div><p style="margin-bottom:16px;font-weight:500;color:#ddd">${esc(f.name)}</p><audio controls autoplay style="width:100%;max-width:380px"><source src="${url}"${mime?` type="${mime}"`:''} ></audio></div>`;
+  else if (type==='pdf')   content.innerHTML = `<iframe src="${url}#toolbar=1"></iframe>`;
+}
+function previewNav(dir) {
+  const next = previewIndex+dir;
+  if (next<0||next>=previewFiles.length) return;
+  document.getElementById('preview-content').querySelectorAll('video,audio').forEach(m=>m.pause());
+  previewIndex=next; renderPreview();
+}
+function closePreview() {
+  document.getElementById('preview-modal').classList.remove('open');
+  const content = document.getElementById('preview-content');
+  content.querySelectorAll('video,audio').forEach(m=>m.pause());
+  content.innerHTML='';
+}
+
+// ── Trash ──────────────────────────────────────────────────────
+async function openTrash() {
+  document.getElementById('trash-modal').classList.add('open');
+  const items = await fetch('/api/trash').then(r=>r.json());
+  const body=document.getElementById('trash-body'), count=document.getElementById('trash-count');
+  if (!items.length) { body.innerHTML='<div class="trash-empty-state">🎉 Bin is empty</div>'; count.textContent=''; return; }
+  count.textContent = items.length+' item'+(items.length!==1?'s':'');
+  body.innerHTML = items.map(item=>`
+    <div class="trash-item">
+      <div class="file-icon" style="font-size:20px">${fileIcon({name:item.name,isDir:item.isDir})}</div>
+      <div class="trash-item-info">
+        <div class="trash-item-name">${esc(item.name)}</div>
+        <div class="trash-item-meta">Deleted ${fmtDate(item.deleted)} · ${item.isDir?'Folder':fmtSize(item.size)}</div>
+      </div>
+      <button class="btn btn-secondary" style="font-size:12px;padding:5px 10px" onclick="restoreItem('${esc(item.id)}')">Restore</button>
+    </div>`).join('');
+}
+function closeTrash() { document.getElementById('trash-modal').classList.remove('open'); }
+async function restoreItem(id) {
+  await fetch('/api/trash/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,path:currentPath})});
+  openTrash(); loadFiles(currentPath);
+}
+async function emptyTrash() {
+  if (!confirm('Permanently delete everything in the bin?')) return;
+  await fetch('/api/trash/empty',{method:'DELETE'}); openTrash();
+}
+
+// ── Disk usage ─────────────────────────────────────────────────
+async function loadDiskUsage() {
+  try {
+    const d = await fetch('/api/diskusage').then(r=>r.json());
+    const pct = Math.round(d.used/d.total*100);
+    const fill=document.getElementById('storage-fill'), label=document.getElementById('storage-label');
+    fill.style.width = pct+'%';
+    fill.className = 'storage-fill'+(pct>=90?' danger':pct>=75?' warn':'');
+    label.textContent = fmtSize(d.used)+' / '+fmtSize(d.total);
+    document.getElementById('storage-chip').classList.add('visible');
+  } catch(e) {}
+}
+
+// ── Helpers ────────────────────────────────────────────────────
+function updateBreadcrumb() {
+  const parts = currentPath.split('/').filter(Boolean);
+  let html = `<span class="crumb" data-path="/" onclick="loadFiles('/')">Home</span>`;
+  let built='';
+  for (const p of parts) {
+    built+='/'+p;
+    const bp=built;
+    html+=`<span class="sep">/</span><span class="crumb" data-path="${bp}" onclick="loadFiles('${bp}')">${esc(p)}</span>`;
+  }
+  document.getElementById('breadcrumb').innerHTML = html;
+}
+function fileIcon(f) {
+  if (f.isDir) return '📁';
+  const e=f.name.split('.').pop().toLowerCase();
+  return ({jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',heic:'🖼️',bmp:'🖼️',svg:'🖼️',
+    mp4:'🎬',mov:'🎬',mkv:'🎬',avi:'🎬',webm:'🎬',m4v:'🎬',
+    mp3:'🎵',flac:'🎵',aac:'🎵',wav:'🎵',ogg:'🎵',m4a:'🎵',
+    pdf:'📄',zip:'🗜️',tar:'🗜️',gz:'🗜️',rar:'🗜️',
+    doc:'📝',docx:'📝',txt:'📝',md:'📝',xls:'📊',xlsx:'📊'})[e]||'📄';
+}
+function szId(path) { return 'sz-'+path.replace(/[^a-zA-Z0-9]/g,'_'); }
+function fmtSize(b) {
+  if (!b||b===0) return '—';
+  const k=1000,s=['B','KB','MB','GB','TB'];
+  const i=Math.min(Math.floor(Math.log(Math.max(b,1))/Math.log(k)),4);
+  return (b/Math.pow(k,i)).toFixed(i>0?1:0)+' '+s[i];
+}
+function fmtDate(iso) { return new Date(iso).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+function fmtSpeed(bps) { if(bps>=1e6)return (bps/1e6).toFixed(1)+' MB/s'; if(bps>=1e3)return (bps/1e3).toFixed(0)+' KB/s'; return bps.toFixed(0)+' B/s'; }
+function fmtEta(s) { if(s<60)return Math.ceil(s)+'s'; if(s<3600)return Math.ceil(s/60)+'m'; return (s/3600).toFixed(1)+'h'; }
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Context menu ───────────────────────────────────────────────
+let ctxTarget = null;
+function openCtxMenu(e, path) {
+  e.preventDefault(); e.stopPropagation();
+  const f = fileMap.get(path);
+  if (!f) return;
+  ctxTarget = f;
+  const menu = document.getElementById('ctx-menu');
+  const canPrev = canPreview(f.name);
+  menu.innerHTML = `
+    ${canPrev ? `<div class="ctx-item" onclick="ctxOpen()">▶ Open</div>` : ''}
+    ${f.isDir  ? `<div class="ctx-item" onclick="ctxEnter()">📂 Open folder</div>` : ''}
+    ${!f.isDir ? `<div class="ctx-item" onclick="ctxDownload()">↓ Download</div>` : ''}
+    <div class="ctx-item" onclick="ctxRename()">✏️ Rename</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item" onclick="ctxInfo()">ℹ️ Info</div>
+    <div class="ctx-sep"></div>
+    <div class="ctx-item danger" onclick="ctxDelete()">🗑 Move to bin</div>`;
+  const mw = 190, mh = menu.childElementCount * 36;
+  const x = Math.min(e.clientX, window.innerWidth  - mw - 8);
+  const y = Math.min(e.clientY, window.innerHeight - mh - 8);
+  menu.style.left = x + 'px';
+  menu.style.top  = y + 'px';
+  menu.classList.add('open');
+}
+function closeCtxMenu() { document.getElementById('ctx-menu').classList.remove('open'); ctxTarget = null; }
+function ctxOpen()     { closeCtxMenu(); if (!ctxTarget) return; const pi=previewFiles.findIndex(p=>p.path===ctxTarget.path); if(pi!==-1) openPreview(pi); }
+function ctxEnter()    { closeCtxMenu(); if (ctxTarget) loadFiles(ctxTarget.path); }
+function ctxDownload() { closeCtxMenu(); if (ctxTarget) dl(ctxTarget.path, ctxTarget.name); }
+function ctxDelete()   { closeCtxMenu(); if (ctxTarget) del(ctxTarget.path, ctxTarget.name); }
+function ctxRename() {
+  const f = ctxTarget; closeCtxMenu(); if (!f) return;
+  const ext   = f.isDir ? '' : '.' + f.name.split('.').pop();
+  const base  = f.isDir ? f.name : f.name.slice(0, f.name.length - ext.length);
+  const newName = prompt('Rename to:', f.name);
+  if (!newName || newName.trim() === f.name) return;
+  fetch('/api/rename', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({path: f.path, newName: newName.trim()}),
+  }).then(() => loadFiles(currentPath));
+}
+function ctxInfo() {
+  const f = ctxTarget; closeCtxMenu(); if (!f) return;
+  const lines = [
+    `Name:     ${f.name}`,
+    `Type:     ${f.isDir ? 'Folder' : 'File'}`,
+    `Size:     ${f.isDir ? '(hover to load)' : fmtSize(f.size)}`,
+    `Modified: ${new Date(f.modTime).toLocaleString()}`,
+    `Path:     ${f.path}`,
+  ];
+  alert(lines.join('\n'));
+}
+document.addEventListener('click',   e => { if (!e.target.closest('#ctx-menu')) closeCtxMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeCtxMenu(); }, true);
+
+document.addEventListener('keydown', e => {
+  const open = document.getElementById('preview-modal').classList.contains('open');
+  if (open) {
+    if (e.key==='ArrowLeft') previewNav(-1);
+    else if (e.key==='ArrowRight') previewNav(1);
+    else if (e.key==='Escape') closePreview();
+    return;
+  }
+  if (e.key==='Escape') closeTrash();
+});
+
+document.addEventListener('dragover', e => {
+  if (!e.dataTransfer.types.includes('Files')) return;
+  e.preventDefault();
+  if (!e.target.closest('.file-item-list,.grid-card'))
+    document.getElementById('drop-overlay').classList.add('active');
+});
+document.addEventListener('dragleave', e => {
+  if (!e.relatedTarget) document.getElementById('drop-overlay').classList.remove('active');
+});
+document.addEventListener('drop', e => {
+  document.getElementById('drop-overlay').classList.remove('active');
+  if (e.target.closest('.file-item-list,.grid-card')) return;
+  if (!e.dataTransfer.types.includes('Files')) return;
+  e.preventDefault();
+  uploadFiles(Array.from(e.dataTransfer.files));
+});
+
+loadFiles('/');
+loadDiskUsage();
+</script>
+</body>
+</html>
