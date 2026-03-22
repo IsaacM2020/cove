@@ -4,6 +4,8 @@
 
 Cove is a self-hosted file storage server — like Google Drive, but on hardware you own, on your home network, with no monthly fees and no third party touching your files. Upload, browse, preview, and stream your photos and videos from anywhere via [Tailscale](https://tailscale.com).
 
+![Cove screenshot](screenshot.png)
+
 ---
 
 ## What you need
