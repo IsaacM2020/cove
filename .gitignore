@@ -1,5 +1,5 @@
 test-storage/
 cove-pi
-cove
+/cove
 dist/
 *.DS_Store
