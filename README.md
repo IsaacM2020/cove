@@ -262,3 +262,8 @@ An SSD will be noticeably faster than a spinning hard drive for thumbnail loadin
 ## License
 
 MIT — do whatever you want with it.
+
+---
+
+## Disclaimer 
+This project was vibecoded. 
