@@ -233,6 +233,28 @@ Detach from tmux with `Ctrl+B, D` and let it run overnight. It's safe to interru
 - Make sure ffmpeg is installed: `which ffmpeg`
 - If not: `sudo apt install ffmpeg`
 - Run the batch fix command above for existing files
+- If it stutters specifically when accessed remotely over Tailscale (fine on local WiFi), see **Performance over Tailscale** below
+
+---
+
+## Performance over Tailscale
+
+If Cove feels slow or videos stutter every few seconds *specifically* when accessed remotely over Tailscale — but fine on your local network — the cause is almost always undersized UDP socket buffers, not your internet connection. Default Debian/Raspberry Pi OS buffers (208KB) are too small for a busy WireGuard tunnel: under load the kernel drops packets faster than `tailscaled` can drain them, which shows up as periodic rebuffering.
+
+The installer sets this automatically on new installs. If you installed Cove before this fix, run:
+
+```bash
+sudo tee /etc/sysctl.d/99-cove-tailscale.conf > /dev/null << 'EOF'
+net.core.rmem_max=8388608
+net.core.wmem_max=8388608
+net.core.rmem_default=4194304
+net.core.wmem_default=4194304
+EOF
+sudo sysctl --system
+sudo systemctl restart tailscaled
+```
+
+Separately, very high-bitrate footage (e.g. GoPro "Protune"/high-bitrate modes, often 40+ Mbps) can exceed what even a healthy Tailscale link sustains in real time. Cove's background transcoder automatically generates a bitrate-capped compatibility copy for any video over 20 Mbps, so this should self-resolve within a minute or two of upload — no action needed.
 
 ---
 

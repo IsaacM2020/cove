@@ -133,6 +133,24 @@ if [[ "$INSTALL_FFMPEG" =~ ^[Yy]$ ]]; then
   fi
 fi
 
+# ── Raise UDP socket buffers for Tailscale ────────────────────────────────────
+# Default Debian/Raspberry Pi OS UDP buffers (208KB) are too small for a busy
+# Tailscale/WireGuard tunnel — under sustained transfer the kernel drops
+# packets faster than tailscaled can drain them, which shows up as periodic
+# stutter on video playback and slow uploads/downloads over Tailscale. This is
+# a no-op if Tailscale isn't installed.
+if command -v tailscale &>/dev/null; then
+  header "Tuning network buffers for Tailscale..."
+  cat > /etc/sysctl.d/99-cove-tailscale.conf <<'EOF'
+net.core.rmem_max=8388608
+net.core.wmem_max=8388608
+net.core.rmem_default=4194304
+net.core.wmem_default=4194304
+EOF
+  sysctl --system &>/dev/null
+  success "Network buffers tuned for Tailscale"
+fi
+
 # ── Download binary ───────────────────────────────────────────────────────────
 header "Downloading Cove $LATEST..."
 mkdir -p "$INSTALL_DIR/web"

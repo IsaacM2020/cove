@@ -888,14 +888,18 @@ function renderPreview() {
   if (!f) return;
   const type = previewType(f.name);
   const ext  = f.name.split('.').pop().toLowerCase();
-  const url  = '/api/preview?path=' + encodeURIComponent(f.path);
+
+  // Server transparently serves a pre-transcoded H.264 compat version for
+  // video (see handlePreview in main.go) so all browsers hit the same endpoint.
+  const url = '/api/preview?path=' + encodeURIComponent(f.path);
+
   const mimeMap = {
     mp4:'video/mp4',mov:'video/mp4',m4v:'video/mp4',
     webm:'video/webm',mkv:'video/webm',avi:'video/x-msvideo',
     mp3:'audio/mpeg',m4a:'audio/mp4',aac:'audio/aac',
     flac:'audio/flac',wav:'audio/wav',ogg:'audio/ogg',
   };
-  const mime = mimeMap[ext]||'';
+  const mime = mimeMap[ext] || '';
   document.getElementById('preview-title').textContent = f.name;
   document.getElementById('preview-counter').textContent = `${previewIndex+1} / ${previewFiles.length}`;
   document.getElementById('preview-dl-btn').onclick = () => dl(f.path, f.name);

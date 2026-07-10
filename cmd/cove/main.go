@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -354,9 +355,22 @@ func handlePreview(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "private, max-age=3600")
 	}
 
-	// Explicit range-request support header — some browsers only buffer ahead
-	// aggressively when they can see the server supports seeking.
-	w.Header().Set("Accept-Ranges", "bytes")
+	// For video files, transparently serve the pre-transcoded H.264 compat
+	// version if one exists. GoPro Hero 9+ and many cameras shoot H.265/HEVC,
+	// which Chrome, Firefox, smart TVs and most non-Apple clients cannot decode.
+	// transcodeCompatVideo runs in the background after every upload and produces
+	// a universally compatible H.264 mp4 stored under .compat/. No client changes
+	// needed — everyone gets smooth playback. ServeFile handles Range requests so
+	// seeking and buffering work correctly.
+	switch ext {
+	case ".mp4", ".mov", ".m4v", ".mkv", ".avi":
+		if cp := compatVideoPath(abs); cp != "" {
+			if _, err := os.Stat(cp); err == nil {
+				http.ServeFile(w, r, cp)
+				return
+			}
+		}
+	}
 
 	http.ServeFile(w, r, abs)
 }
@@ -594,7 +608,11 @@ func handleSimpleUpload(w http.ResponseWriter, r *http.Request) {
 			f.Close(); http.Error(w, err.Error(), 500); return
 		}
 	}
-	written, _ := io.Copy(f, r.Body)
+	// Explicit large buffer cuts syscall overhead for big uploads — io.Copy's
+	// default 32KB buffer means far more read/write syscalls than necessary
+	// when writing to the exFAT-mounted storage drive.
+	buf := make([]byte, 4*1024*1024)
+	written, _ := io.CopyBuffer(f, r.Body, buf)
 	f.Close()
 
 	totalWritten := offset + written
@@ -625,11 +643,165 @@ func handleSimpleUpload(w http.ResponseWriter, r *http.Request) {
 	log.Printf("upload complete: %s", dst)
 	w.WriteHeader(http.StatusCreated)
 
-	// Run ffmpeg faststart in background — moves moov atom to front of file so
-	// browsers can play without downloading the whole file first. This is what
-	// causes the buffering on iPhone .mov files. Fire-and-forget goroutine so
-	// the upload response returns immediately.
-	go faststartVideo(dst)
+	// Run post-upload video processing in the background, sequentially, so the
+	// upload response returns immediately without blocking the client.
+	//
+	// faststartVideo       — moves the moov atom to the front so playback starts
+	//                        instantly (applies to all video, fast remux via -c copy)
+	// transcodeCompatVideo — produces a compatible/bitrate-capped H.264 copy under
+	//                        .compat/ when needed (see its doc comment)
+	//
+	// These must run sequentially, not as two independent goroutines: faststartVideo
+	// renames a new file over dst when it finishes, and if transcodeCompatVideo were
+	// still mid-read of dst at that moment, the rename could corrupt its read
+	// (observed as spurious ffmpeg failures on exFAT). Running compat transcoding
+	// after faststart completes also means it reads the already-faststarted file.
+	go func() {
+		faststartVideo(dst)
+		transcodeCompatVideo(dst)
+	}()
+}
+
+// compatVideoPath returns the path where a pre-transcoded H.264 compat copy of
+// a video file is stored. Compatible files live under storageRoot/.compat/ with
+// the same relative path, suffixed with ".mp4". Returns "" if abs is not under
+// storageRoot (safety check).
+func compatVideoPath(abs string) string {
+	rel, err := filepath.Rel(storageRoot, abs)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return filepath.Join(storageRoot, ".compat", rel+".mp4")
+}
+
+// isHEVC returns true if the file at path is encoded with H.265/HEVC.
+// We detect by running ffmpeg -i (which exits non-zero but prints codec info to
+// stderr) and looking for "Video: hevc" in the output. This works without ffprobe.
+func isHEVC(path string) bool {
+	s := strings.ToLower(ffmpegProbe(path))
+	return strings.Contains(s, "video: hevc") || strings.Contains(s, "video: h265")
+}
+
+// ffmpegProbe runs ffmpeg -i and returns its stderr+stdout output, which contains
+// the stream info (codec, resolution, bitrate) even though the command itself
+// always exits non-zero with no output file given.
+func ffmpegProbe(path string) string {
+	cmd := exec.Command("ffmpeg", "-i", path)
+	out, _ := cmd.CombinedOutput()
+	return string(out)
+}
+
+// videoBitrateKbps extracts the video stream's bitrate in kb/s from ffmpeg -i
+// output, e.g. "Video: h264 ..., 45004 kb/s, 59.94 fps". Returns 0 if not found
+// (container-level bitrate only, no per-stream figure — rare, but harmless: it
+// just means the bitrate-cap check below won't trigger).
+var videoBitrateRe = regexp.MustCompile(`Video:.*?(\d+) kb/s`)
+
+func videoBitrateKbps(path string) int {
+	m := videoBitrateRe.FindStringSubmatch(ffmpegProbe(path))
+	if len(m) < 2 {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// highBitrateKbps is the threshold above which even H.264 footage gets
+// re-encoded down. GoPro "Protune"/high-bitrate modes and some phone footage
+// shoot 1080p at 40-100+ Mbps — far more than needed for visually excellent
+// playback, and more than most remote links (Tailscale, weak wifi, mobile
+// hotspot) can sustain in real time, which is what causes stutter/rebuffering
+// even though the codec itself is universally supported.
+const highBitrateKbps = 20000
+
+// transcodeCompatVideo produces a universally compatible, reasonably-sized
+// H.264/AAC copy stored under storageRoot/.compat/, when either:
+//   - the source is H.265/HEVC (Chrome, Firefox, smart TVs, most non-Apple
+//     clients can't decode it), or
+//   - the source is H.264 but shot at a very high bitrate (>20 Mbps) that
+//     exceeds what most networks can stream in real time.
+//
+// This runs as a background goroutine after every upload, alongside faststartVideo.
+// Once the compat file exists, handlePreview serves it instead of the original —
+// transparently, with no client-side detection needed. The original file is
+// never modified.
+//
+// Transcode settings:
+//   -preset fast          : good speed/quality balance; Pi 5 handles 1080p in real time
+//   -crf 23                : visually transparent quality for preview use
+//   -maxrate/-bufsize      : caps peak bitrate so playback never outruns real-world
+//                            network throughput, regardless of source bitrate
+//   -vf scale              : cap at 1920px wide so 4K doesn't overwhelm the Pi at preview time
+//   -movflags faststart    : moov atom at front so playback starts immediately
+func transcodeCompatVideo(path string) {
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".mp4", ".mov", ".m4v", ".mkv", ".avi":
+		// continue
+	default:
+		return
+	}
+
+	ffmpegCheckOnce.Do(func() {
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			log.Printf("⚠️  ffmpeg not found — video compat transcoding disabled. Install with: sudo apt install ffmpeg")
+			ffmpegMissing = true
+		}
+	})
+	if ffmpegMissing {
+		return
+	}
+
+	hevc := isHEVC(path)
+	bitrate := videoBitrateKbps(path)
+	if !hevc && bitrate <= highBitrateKbps {
+		return
+	}
+
+	compatPath := compatVideoPath(path)
+	if compatPath == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(compatPath), 0755); err != nil {
+		log.Printf("compat mkdir failed for %s: %v", filepath.Base(path), err)
+		return
+	}
+
+	// Skip if compat already exists (e.g. after a cove restart with existing files)
+	if _, err := os.Stat(compatPath); err == nil {
+		return
+	}
+
+	log.Printf("transcoding compat copy (hevc=%v bitrate=%dkbps): %s", hevc, bitrate, filepath.Base(path))
+	// tmp doesn't end in .mp4, so ffmpeg can't infer the container format from
+	// the extension alone — pass -f mp4 explicitly.
+	tmp := compatPath + ".tmp"
+	cmd := exec.Command("ffmpeg",
+		"-i", path,
+		"-c:v", "libx264",
+		"-preset", "fast",
+		"-crf", "23",
+		"-maxrate", "12M",
+		"-bufsize", "24M",
+		"-vf", "scale='min(1920,iw)':-2", // cap at 1920px wide, preserve aspect ratio
+		"-c:a", "aac",
+		"-b:a", "128k",
+		"-movflags", "+faststart",
+		"-f", "mp4",
+		"-y",
+		tmp,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("compat transcode failed for %s: %v\n%s", filepath.Base(path), err, out)
+		os.Remove(tmp)
+		return
+	}
+	if err := os.Rename(tmp, compatPath); err != nil {
+		log.Printf("compat transcode rename failed for %s: %v", filepath.Base(path), err)
+		os.Remove(tmp)
+		return
+	}
+	log.Printf("compat transcode done: %s", filepath.Base(path))
 }
 
 // faststartVideo runs ffmpeg -movflags +faststart on a video file, which moves
@@ -663,16 +835,19 @@ func faststartVideo(path string) {
 	})
 	if ffmpegMissing { return }
 
+	// tmp doesn't end in .mp4/.mov/etc, so ffmpeg can't infer the container
+	// format from the extension alone — pass -f mp4 explicitly.
 	tmp := path + ".faststart.tmp"
 	cmd := exec.Command("ffmpeg",
 		"-i", path,
 		"-c", "copy",          // no re-encode — just reorder atoms, fast
 		"-movflags", "+faststart",
+		"-f", "mp4",
 		"-y",                  // overwrite tmp without asking
 		tmp,
 	)
-	if err := cmd.Run(); err != nil {
-		log.Printf("ffmpeg faststart failed for %s: %v", filepath.Base(path), err)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("ffmpeg faststart failed for %s: %v\n%s", filepath.Base(path), err, out)
 		os.Remove(tmp)
 		return
 	}
