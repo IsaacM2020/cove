@@ -33,6 +33,11 @@ var (
 	uploadSessions  sync.Map // uploadId → tempFilePath
 )
 
+// version is set at build time via -ldflags "-X main.version=vX.Y.Z" (see
+// Makefile's `deploy`/`pi-arm64` targets and .github/workflows/release.yml).
+// Defaults to "dev" for local `go run`/unversioned builds.
+var version = "dev"
+
 type Entry struct {
 	Name    string    `json:"name"`
 	Path    string    `json:"path"`
@@ -192,6 +197,7 @@ func main() {
 
 	r.Get("/login", serveLogin)
 	r.Post("/api/auth/login", handleLogin)
+	r.Get("/api/version", handleVersion)
 
 	r.Group(func(r chi.Router) {
 		r.Use(authMiddleware)
@@ -299,6 +305,11 @@ func authFileServer(fs http.FileSystem) http.Handler {
 
 func serveLogin(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "./web/login.html")
+}
+
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"version": version})
 }
 
 func safePath(rel string) (string, error) {

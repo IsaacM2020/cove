@@ -189,6 +189,7 @@
 <header>
   <div class="logo">🌊</div>
   <div class="logo-text">Cove</div>
+  <span id="version-tag" style="font-size:11px;color:var(--text-secondary,#888);margin-left:-4px;margin-top:10px;user-select:none"></span>
   <div class="breadcrumb" id="breadcrumb"></div>
   <div class="header-right">
     <div class="storage-chip" id="storage-chip">
@@ -1083,6 +1084,9 @@ document.addEventListener('drop', e => {
 
 loadFiles('/');
 loadDiskUsage();
+fetch('/api/version').then(r => r.json()).then(d => {
+  document.getElementById('version-tag').textContent = d.version;
+}).catch(() => {});
 </script>
 </body>
 </html>
