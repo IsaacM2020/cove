@@ -350,15 +350,25 @@ async function runUpload(job) {
   if (row) row._uploadJob = job;
 
   let lastLoaded = 0, lastTime = Date.now();
+  // EMA of upload speed. The raw per-tick rate (bytes since last event /
+  // time since last event) swings wildly on bursty transfers — especially
+  // over Tailscale/WireGuard, where the OS delivers data in uneven chunks —
+  // which is exactly why the ETA used to jump between e.g. "2m" and "40s"
+  // from one progress event to the next. Smoothing it means each new sample
+  // nudges the estimate instead of replacing it outright.
+  let smoothedBps = null;
 
   xhr.upload.onprogress = e => {
     const totalLoaded = startOffset + e.loaded;
     const pct = Math.round(totalLoaded / file.size * 100);
     const now = Date.now(), dt = (now - lastTime) / 1000, db = e.loaded - lastLoaded;
     if (dt > 0.5 && db > 0) {
-      const bps = db / dt;
-      if (g('speed')) g('speed').textContent = fmtSpeed(bps);
-      if (g('eta'))   g('eta').textContent   = fmtEta((file.size - totalLoaded) / bps);
+      const instantBps = db / dt;
+      // alpha=0.25 — settles to a stable reading within a few seconds while
+      // still tracking real, sustained speed changes (not just noise).
+      smoothedBps = smoothedBps === null ? instantBps : smoothedBps * 0.75 + instantBps * 0.25;
+      if (g('speed')) g('speed').textContent = fmtSpeed(smoothedBps);
+      if (g('eta'))   g('eta').textContent   = fmtEta((file.size - totalLoaded) / smoothedBps);
       lastLoaded = e.loaded; lastTime = now;
     }
     if (g('bar')) g('bar').style.width = pct + '%';
@@ -448,6 +458,66 @@ function uploadFolder(fileList) {
   Array.from(fileList).forEach(file =>
     addFileToQueue(file, file.webkitRelativePath || file.name)
   );
+}
+
+// ── Drag-and-drop folder support ──────────────────────────────
+// dataTransfer.files is always a flat list — dropping a folder from Finder/
+// Explorer does NOT give you its contents through that API, it gives you a
+// single bogus entry for the folder itself (0 bytes, no useful content),
+// which is why dropped folders were being uploaded "like a file". The real
+// directory tree is only reachable via webkitGetAsEntry() (standard in every
+// major browser despite the prefix), which must be called synchronously
+// inside the drop handler — the FileSystemEntry objects it returns can then
+// be walked asynchronously to rebuild the same {file, relativePath} pairs
+// the "📁 Folder" picker gets from webkitRelativePath.
+function readEntry(entry, pathPrefix) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(
+        file => resolve([{ file, relativePath: pathPrefix + file.name }]),
+        () => resolve([])
+      );
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const collected = [];
+      const readBatch = () => {
+        reader.readEntries(async batch => {
+          if (batch.length === 0) {
+            const nested = await Promise.all(
+              collected.map(e => readEntry(e, pathPrefix + entry.name + '/'))
+            );
+            resolve(nested.flat());
+            return;
+          }
+          // readEntries() only returns up to 100 entries per call — keep
+          // calling until it reports an empty batch (end of directory).
+          collected.push(...batch);
+          readBatch();
+        }, () => resolve([]));
+      };
+      readBatch();
+    } else {
+      resolve([]);
+    }
+  });
+}
+
+async function filesFromDataTransfer(dataTransfer) {
+  const items = dataTransfer.items;
+  if (!items) return Array.from(dataTransfer.files).map(file => ({ file, relativePath: '' }));
+  // webkitGetAsEntry() must run synchronously here, before any await below —
+  // browsers invalidate DataTransferItems once the drop event handler yields.
+  const entries = Array.from(items)
+    .map(item => item.webkitGetAsEntry && item.webkitGetAsEntry())
+    .filter(Boolean);
+  if (entries.length === 0) return Array.from(dataTransfer.files).map(file => ({ file, relativePath: '' }));
+  const nested = await Promise.all(entries.map(e => readEntry(e, '')));
+  return nested.flat();
+}
+
+async function uploadDataTransfer(dataTransfer) {
+  const items = await filesFromDataTransfer(dataTransfer);
+  items.forEach(({ file, relativePath }) => addFileToQueue(file, relativePath));
 }
 
 async function pauseOneUpload(fileId) {
@@ -802,7 +872,7 @@ async function onDrop(e, el, destPath, destName) {
   e.preventDefault(); e.stopPropagation();
   el.classList.remove('drag-over');
   if (e.dataTransfer.files && e.dataTransfer.files.length > 0 && e.dataTransfer.types.includes('Files')) {
-    uploadFiles(Array.from(e.dataTransfer.files)); return;
+    uploadDataTransfer(e.dataTransfer); return;
   }
   if (dragSrcPath && dragSrcPath !== destPath) {
     await fetch('/api/move', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({src:dragSrcPath,dst:destPath}) });
@@ -1079,7 +1149,7 @@ document.addEventListener('drop', e => {
   if (e.target.closest('.file-item-list,.grid-card')) return;
   if (!e.dataTransfer.types.includes('Files')) return;
   e.preventDefault();
-  uploadFiles(Array.from(e.dataTransfer.files));
+  uploadDataTransfer(e.dataTransfer);
 });
 
 loadFiles('/');

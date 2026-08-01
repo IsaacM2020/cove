@@ -18,11 +18,16 @@ pi-arm64:
 	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o $(BINARY)-pi ./cmd/cove
 
 deploy: pi-arm64
-	ssh $(PI_USER)@$(PI_HOST) "mkdir -p $(PI_DIR)/web && pkill cove; true"
+	# cove runs as root (systemd unit User=root), so a non-sudo pkill from an
+	# isaac-user SSH session can't touch it — and scp overwriting a binary
+	# that's still running/mapped for exec hits ETXTBSY either way. Stopping
+	# the unit via systemctl first blocks until the process has actually
+	# exited, so the scp below always lands on a free file.
+	ssh $(PI_USER)@$(PI_HOST) "mkdir -p $(PI_DIR)/web && sudo systemctl stop cove"
 	scp $(BINARY)-pi $(PI_USER)@$(PI_HOST):$(PI_DIR)/cove
 	scp web/index.html $(PI_USER)@$(PI_HOST):$(PI_DIR)/web/index.html
 	scp web/login.html $(PI_USER)@$(PI_HOST):$(PI_DIR)/web/login.html
-	ssh $(PI_USER)@$(PI_HOST) "chmod +x $(PI_DIR)/cove && sudo systemctl restart cove"
+	ssh $(PI_USER)@$(PI_HOST) "chmod +x $(PI_DIR)/cove && sudo systemctl start cove"
 
 # Build all release binaries locally (mirrors what CI does)
 release-build:

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -121,6 +122,13 @@ func main() {
 			cleanStaleUploads()
 		}
 	}()
+
+	// Catch up on any video whose faststart/compat pass was interrupted last
+	// time the server stopped (e.g. mid-transcode when the pi rebooted). Left
+	// unfixed, that video has no compat copy and keeps buffering forever —
+	// nothing else ever retries it. Runs through the same transcodeSem as
+	// live uploads, one file at a time, so it doesn't compete for CPU.
+	go backfillVideoProcessing()
 
 	store    := filestore.New(uploadTemp)
 	composer := tusd.NewStoreComposer()
@@ -654,23 +662,107 @@ func handleSimpleUpload(w http.ResponseWriter, r *http.Request) {
 	log.Printf("upload complete: %s", dst)
 	w.WriteHeader(http.StatusCreated)
 
-	// Run post-upload video processing in the background, sequentially, so the
-	// upload response returns immediately without blocking the client.
-	//
-	// faststartVideo       — moves the moov atom to the front so playback starts
-	//                        instantly (applies to all video, fast remux via -c copy)
-	// transcodeCompatVideo — produces a compatible/bitrate-capped H.264 copy under
-	//                        .compat/ when needed (see its doc comment)
-	//
-	// These must run sequentially, not as two independent goroutines: faststartVideo
-	// renames a new file over dst when it finishes, and if transcodeCompatVideo were
-	// still mid-read of dst at that moment, the rename could corrupt its read
-	// (observed as spurious ffmpeg failures on exFAT). Running compat transcoding
-	// after faststart completes also means it reads the already-faststarted file.
-	go func() {
-		faststartVideo(dst)
-		transcodeCompatVideo(dst)
-	}()
+	// Run post-upload video processing in the background so the upload
+	// response returns immediately without blocking the client.
+	go processVideoAsync(dst)
+}
+
+// transcodeConcurrency bounds how many videos get post-processed (faststart +
+// compat transcode) at once. Without a cap, dropping in a whole folder of
+// GoPro clips fires one goroutine per upload and they all start libx264
+// encodes concurrently — on weak hardware that thrashes every core at once,
+// and if the process gets interrupted mid-batch (restart, reboot), every
+// video that was mid-transcode is left with an orphaned .tmp file and no
+// compat copy — permanently stuck buffering, since nothing else ever
+// retries it (see backfillVideoProcessing, which cleans up and redoes those).
+//
+// libx264 already multithreads a single encode internally — on a Pi 5, one
+// "fast"-preset 1080p transcode alone pins 3+ of its 4 cores, so running a
+// second one concurrently wouldn't add throughput, just make both slower.
+// Each concurrent transcode wants roughly 4 cores to itself to stay fast, so
+// this scales with core count instead of being hardcoded: 1 on a 4-core Pi
+// (matches what's needed there), but more on beefier hardware — a NAS or
+// server running Cove — so retrieval/upload stay fast there too while
+// catching up a backlog, instead of being artificially capped at 1 forever.
+var transcodeConcurrency = func() int {
+	n := runtime.NumCPU() / 4
+	if n < 1 {
+		n = 1
+	}
+	return n
+}()
+
+var transcodeSem = make(chan struct{}, transcodeConcurrency)
+
+// processVideoAsync runs faststartVideo then transcodeCompatVideo for a
+// single file, serialized against every other in-flight video via
+// transcodeSem. These two must also run sequentially relative to each other:
+// faststartVideo renames a new file over dst when it finishes, and if
+// transcodeCompatVideo were still mid-read of dst at that moment, the rename
+// could corrupt its read (observed as spurious ffmpeg failures on exFAT).
+func processVideoAsync(dst string) {
+	transcodeSem <- struct{}{}
+	defer func() { <-transcodeSem }()
+	faststartVideo(dst)
+	transcodeCompatVideo(dst)
+}
+
+// backfillVideoProcessing runs once at startup and catches up any video left
+// without a compat copy by a transcode that got interrupted before it could
+// finish (server restart, pi reboot, etc. — mid-encode, before the previous
+// fix, this reliably happened whenever a folder of clips was uploaded
+// together, see processVideoAsync). It:
+//  1. Removes orphaned .tmp files left in .compat/ by interrupted runs, so
+//     the retry below starts clean instead of tripping the "already exists"
+//     skip-check on a half-written file.
+//  2. Walks the real storage tree and re-queues compat transcoding for every
+//     video — transcodeCompatVideo itself is idempotent (skips instantly if
+//     a valid compat file already exists, or if the source doesn't need
+//     one), so this is cheap for files that are already done and only does
+//     real work for the ones that were actually left stuck.
+//
+// faststartVideo is intentionally NOT re-run here: it always rewrites the
+// whole file (a full read+write on a drive that tops out well under
+// 20MB/s), and unlike the compat step it has no "already applied" marker to
+// skip on, so re-running it for every video on every restart would be pure
+// wasted disk churn for files that were already fine.
+func backfillVideoProcessing() {
+	compatRoot := filepath.Join(storageRoot, ".compat")
+	filepath.Walk(compatRoot, func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(path, ".tmp") {
+			if rmErr := os.Remove(path); rmErr == nil {
+				log.Printf("removed orphaned compat tmp: %s", path)
+			}
+		}
+		return nil
+	})
+
+	skipDirs := map[string]bool{".uploads": true, ".trash": true, ".compat": true}
+	filepath.Walk(storageRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info == nil {
+			return nil
+		}
+		if info.IsDir() {
+			if skipDirs[info.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(path, ".faststart.tmp") {
+			// Orphaned remux temp file from an interrupted faststart run.
+			// The original file is untouched (faststartVideo only renames
+			// this over it on success), so it's safe to just delete.
+			os.Remove(path)
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(path)) {
+		case ".mp4", ".mov", ".m4v", ".mkv", ".avi":
+			transcodeSem <- struct{}{}
+			transcodeCompatVideo(path)
+			<-transcodeSem
+		}
+		return nil
+	})
 }
 
 // compatVideoPath returns the path where a pre-transcoded H.264 compat copy of
@@ -697,9 +789,47 @@ func isHEVC(path string) bool {
 // the stream info (codec, resolution, bitrate) even though the command itself
 // always exits non-zero with no output file given.
 func ffmpegProbe(path string) string {
-	cmd := exec.Command("ffmpeg", "-i", path)
+	cmd := ffmpegCmd("-i", path)
 	out, _ := cmd.CombinedOutput()
 	return string(out)
+}
+
+// niceCheckOnce / hasNice / hasIonice detect once whether nice/ionice are
+// available, so ffmpegCmd doesn't re-run exec.LookPath on every call.
+var (
+	niceCheckOnce sync.Once
+	hasNice       bool
+	hasIonice     bool
+)
+
+// ffmpegCmd builds an ffmpeg invocation deprioritized via nice/ionice so
+// background video processing never starves a live upload of CPU or disk
+// bandwidth. A single compat transcode of 4K GoPro footage pins 3+ CPU
+// cores and does heavy disk I/O for minutes — without this, catching up a
+// backlog of stuck transcodes (see backfillVideoProcessing) tanks concurrent
+// upload speed to a crawl, since both are fighting for the same scarce disk
+// throughput on this drive.
+//   - ionice -c3 (idle class): this process only gets disk I/O when nothing
+//     else wants it — uploads and normal browsing always win.
+//   - nice -n19: lowest CPU scheduling priority, same idea for CPU time.
+//
+// Both ship on every Debian/Raspberry Pi OS install; falls back to a plain
+// ffmpeg command if either is somehow missing rather than failing outright.
+func ffmpegCmd(args ...string) *exec.Cmd {
+	niceCheckOnce.Do(func() {
+		_, err := exec.LookPath("ionice")
+		hasIonice = err == nil
+		_, err = exec.LookPath("nice")
+		hasNice = err == nil
+	})
+	switch {
+	case hasIonice && hasNice:
+		return exec.Command("ionice", append([]string{"-c3", "nice", "-n", "19", "ffmpeg"}, args...)...)
+	case hasNice:
+		return exec.Command("nice", append([]string{"-n", "19", "ffmpeg"}, args...)...)
+	default:
+		return exec.Command("ffmpeg", args...)
+	}
 }
 
 // videoBitrateKbps extracts the video stream's bitrate in kb/s from ffmpeg -i
@@ -787,7 +917,7 @@ func transcodeCompatVideo(path string) {
 	// tmp doesn't end in .mp4, so ffmpeg can't infer the container format from
 	// the extension alone — pass -f mp4 explicitly.
 	tmp := compatPath + ".tmp"
-	cmd := exec.Command("ffmpeg",
+	cmd := ffmpegCmd(
 		"-i", path,
 		"-c:v", "libx264",
 		"-preset", "fast",
@@ -849,7 +979,7 @@ func faststartVideo(path string) {
 	// tmp doesn't end in .mp4/.mov/etc, so ffmpeg can't infer the container
 	// format from the extension alone — pass -f mp4 explicitly.
 	tmp := path + ".faststart.tmp"
-	cmd := exec.Command("ffmpeg",
+	cmd := ffmpegCmd(
 		"-i", path,
 		"-c", "copy",          // no re-encode — just reorder atoms, fast
 		"-movflags", "+faststart",
